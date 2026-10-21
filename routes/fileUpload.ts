@@ -30,7 +30,7 @@ async function extractZipBuffer (buffer: Buffer) {
     const fileName = entry.path
     const absolutePath = path.resolve('uploads/complaints/' + fileName)
     challengeUtils.solveIf(challenges.fileWriteChallenge, () => { return absolutePath === path.resolve('ftp/legal.md') })
-    if (absolutePath.includes(path.resolve('.'))) {
+    if (absolutePath.startsWith(path.resolve('uploads/complaints') + path.sep)) {
       await pipeline(entry.stream(), fs.createWriteStream('uploads/complaints/' + fileName))
     }
   }
@@ -73,6 +73,14 @@ async function handleXmlUpload ({ file }: Request, res: Response, next: NextFunc
     if (((file?.buffer) != null) && utils.isChallengeEnabled(challenges.deprecatedInterfaceChallenge)) { // XXE attacks in Docker/Heroku containers regularly cause "segfault" crashes
       const data = file.buffer.toString()
       try {
+        const cleanData = data.replace(/<!--[\s\S]*?-->/g, '')
+        if (
+          /(?:<!ENTITY|<!DOCTYPE|<!NOTATION)[^>]*\b(?:SYSTEM|PUBLIC)\b/i.test(cleanData) ||
+          /<!ENTITY\s*%/i.test(cleanData) ||
+          /<\s*(?:\w+:)?include\s+[^>]*\bhref\s*=/i.test(cleanData)
+        ) {
+          throw new Error('External entity references are not allowed')
+        }
         const xmlString = await parseXmlString(data)
         challengeUtils.solveIf(challenges.xxeFileDisclosureChallenge, () => { return (utils.matchesEtcPasswdFile(xmlString) || utils.matchesSystemIniFile(xmlString)) })
         res.status(410)
